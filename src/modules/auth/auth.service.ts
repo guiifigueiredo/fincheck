@@ -1,13 +1,46 @@
-import { ConflictException, Injectable } from '@nestjs/common';
-import { CreateUserDto } from './dto/create-user.dto';
-import { hash } from 'bcryptjs';
+import {
+  ConflictException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { UsersRepository } from 'src/shared/database/repositories/users.repositories';
-@Injectable()
-export class UserService {
-  constructor(private readonly usersRepo: UsersRepository) {}
+import { compare, hash } from 'bcryptjs';
+import { JwtService } from '@nestjs/jwt';
+import { SigninUserDto } from './dto/signin.dto';
+import { SignupUserDto } from './dto/signup.dto';
 
-  async create(createUserDto: CreateUserDto) {
-    const { name, password, email } = createUserDto;
+@Injectable()
+export class AuthService {
+  constructor(
+    private readonly usersRepo: UsersRepository,
+    private readonly jwtService: JwtService,
+  ) {}
+
+  async signin(signinUserDto: SigninUserDto) {
+    const { email, password } = signinUserDto;
+    const userAuthenticate = await this.usersRepo.findUnique({
+      where: { email },
+    });
+
+    if (!userAuthenticate) {
+      throw new UnauthorizedException('Invalid Crendencials!!');
+    }
+
+    const isPasswordValid = await compare(password, userAuthenticate.password);
+
+    if (!isPasswordValid) {
+      throw new UnauthorizedException('Usuário sem permissão');
+    }
+
+    const accessToken = await this.generateAcessToken(userAuthenticate.id);
+
+    return {
+      accessToken,
+    };
+  }
+
+  async signup(signUserDto: SignupUserDto) {
+    const { name, password, email } = signUserDto;
 
     const emailTaken = await this.usersRepo.findUnique({
       where: { email },
@@ -47,6 +80,14 @@ export class UserService {
       },
     });
 
-    return user;
+    const accessToken = await this.generateAcessToken(user.id);
+
+    return {
+      accessToken,
+    };
+  }
+
+  private generateAcessToken(userId: string) {
+    return this.jwtService.signAsync({ sub: userId });
   }
 }
